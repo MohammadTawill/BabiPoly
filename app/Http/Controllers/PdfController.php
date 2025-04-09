@@ -5,41 +5,42 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\DomCrawler\Crawler;
 use setasign\Fpdi\Fpdi;
+use App\Services\CustomPdf;
 
 class PdfController extends Controller
 {
     public function generatePdf(Request $request)
     {
-        $username = "bybloshotel.ci";
-        $instagramUrl = "https://www.instagram.com/{$username}/";
-
-        // Fetch the HTML content of the Instagram profile page
-        $client = new \GuzzleHttp\Client();
-        $response = $client->get($instagramUrl);
-        $html = (string) $response->getBody();
-
-        // Use Symfony DomCrawler to parse the HTML
-        $crawler = new Crawler($html);
-
-        try {
-            // Extract profile name
-            $profileName = $crawler->filter('meta[property="og:title"]')->attr('content');
-            $profileName = explode('Abidjan', $profileName)[0]; // Split at "Abidjan" and take the first part
-            $profileName = trim($profileName); // Remove any trailing spaces
-
-            // Extract profile image from Instagram
-            $profileImage = $crawler->filter('meta[property="og:image"]')->attr('content');
-            $logoUrl = $profileImage; // Use the Instagram profile image as the logo
-        } catch (\Exception $e) {
-            Log::error('Unable to fetch profile data from HTML: ' . $e->getMessage());
-            return response()->json(['error' => 'Unable to fetch profile data'], 400);
-        }
+        // List of Instagram links
+        $instagramLinks = [
+            'https://www.instagram.com/dent_de_man/',
+            'https://www.instagram.com/pontadope_oficial/',
+            'https://www.instagram.com/parcpedagogiquesaintnectaire/',
+            'https://www.instagram.com/lemontnimba/',
+            'https://www.instagram.com/baiedessirenes/',
+            'https://www.instagram.com/sofitelabidjan/',
+            'https://www.instagram.com/stade_olympique_ado_ebimpe/',
+            'https://www.instagram.com/hotelassiniebeach/',
+            'https://www.instagram.com/bybloshotel.ci/',
+            'https://www.instagram.com/allocodrome/',
+            'https://www.instagram.com/grandmarcheqc/',
+            'https://www.instagram.com/rueprincesse_official/',
+            'https://www.instagram.com/petiteoccasion.reims/',
+            'https://www.instagram.com/lacasableuecarquefou/',
+            'https://www.instagram.com/ile_de_robinson/',
+            'https://www.instagram.com/piscine_de_chamonix/',
+        ];
 
         // Path to the local PDF template
-        $pdfTemplatePath = public_path('files/Babipoly x Byblos Hotel.pdf');
+        $pdfTemplatePath = public_path('files/Babipoly.pdf');
 
-        // Create a new FPDI instance
-        $pdf = new Fpdi();
+        // Check if the template exists
+        if (!file_exists($pdfTemplatePath)) {
+            return response()->json(['error' => 'PDF template not found.'], 404);
+        }
+
+        // Create a new CustomPdf instance
+        $pdf = new CustomPdf();
 
         // Load all pages from the template PDF
         $pageCount = $pdf->setSourceFile($pdfTemplatePath); // Get the total number of pages
@@ -51,59 +52,106 @@ class PdfController extends Controller
             // Add a new page in landscape mode
             $pdf->AddPage('L', [$size['height'], $size['width']]); // Swap width and height for landscape mode
 
-            // Get the dimensions of the output page
-            $pageWidth = $pdf->GetPageWidth();
-            $pageHeight = $pdf->GetPageHeight();
-
-            // Calculate scaling to fit the imported page into the output page
-            $scaleWidth = $pageWidth / $size['width'];
-            $scaleHeight = $pageHeight / $size['height'];
-            $scale = min($scaleWidth, $scaleHeight); // Use the smaller scale to fit the page
-
-            // Center the imported page on the output page
-            $x = ($pageWidth - $size['width'] * $scale) / 2;
-            $y = ($pageHeight - $size['height'] * $scale) / 2;
-
             // Use the template and scale it to fit the page
-            $pdf->useTemplate($templateId, $x, $y, $size['width'] * $scale, $size['height'] * $scale);
+            $pdf->useTemplate($templateId);
 
-            // Add the logo and profile name only to the fourth page
-            if ($pageNo === 4) {
-                // Fetch the logo content from the URL
-                $logoContent = file_get_contents($logoUrl);
+            // Add Instagram photos and names only to the first page
+            if ($pageNo === 1) {
+                // Define custom coordinates for each image and name
+                $coordinates = [
+                    ['x' => 39, 'y' => 1],  // First image
+                    ['x' => 85, 'y' => 1],  // Second image
+                    ['x' => 108, 'y' => 1], // Third image
+                    ['x' => 175, 'y' => 1], // Fourth image
+                    ['x' => 10, 'y' => 60],  // Fifth image
+                    ['x' => 60, 'y' => 60],  // Sixth image
+                    ['x' => 110, 'y' => 60], // Seventh image
+                    ['x' => 160, 'y' => 60], // Eighth image
+                    // Add more coordinates as needed
+                ];
 
-                // Detect the MIME type of the image
-                $finfo = new \finfo(FILEINFO_MIME_TYPE);
-                $mimeType = $finfo->buffer($logoContent);
+                foreach ($instagramLinks as $index => $link) {
+                    try {
+                        // Fetch the HTML content of the Instagram profile page
+                        $client = new \GuzzleHttp\Client();
+                        $response = $client->get($link);
 
-                // Determine the correct file extension based on the MIME type
-                $extension = match ($mimeType) {
-                    'image/jpeg' => '.jpg',
-                    'image/png' => '.png',
-                    'image/gif' => '.gif',
-                    default => null,
-                };
+                        // Ensure the response status is 200 (OK)
+                        if ($response->getStatusCode() === 200) {
+                            $html = $response->getBody()->getContents(); // Correct way to get the response body as a string
+                        } else {
+                            throw new \Exception('Failed to fetch the page. Status code: ' . $response->getStatusCode());
+                        }
 
-                // Ensure the image is in a supported format
-                if ($extension === null) {
-                    throw new \Exception('Unsupported image format: ' . $mimeType);
+                        // Use Symfony DomCrawler to parse the HTML
+                        $crawler = new Crawler($html);
+
+                        // Extract profile name
+                        $profileName = $crawler->filter('meta[property="og:title"]')->attr('content');
+                        $profileName = explode('(', $profileName)[0]; // Extract the name
+                        $profileName = trim($profileName); // Remove any trailing spaces
+
+                        // Extract profile image
+                        $profileImage = $crawler->filter('meta[property="og:image"]')->attr('content');
+                        $logoContent = file_get_contents($profileImage);
+
+                        // Detect the MIME type of the image
+                        $finfo = new \finfo(FILEINFO_MIME_TYPE);
+                        $mimeType = $finfo->buffer($logoContent);
+
+                        // Save the image temporarily
+                        $tempImagePath = sys_get_temp_dir() . "/logo_$index";
+                        file_put_contents($tempImagePath, $logoContent);
+
+                        // Convert the image to PNG if necessary
+                        $pngImagePath = sys_get_temp_dir() . "/logo_$index.png";
+                        if ($mimeType !== 'image/png') {
+                            $image = imagecreatefromstring($logoContent);
+                            if ($image === false) {
+                                throw new \Exception('Failed to create image from content.');
+                            }
+                            imagepng($image, $pngImagePath); // Convert to PNG
+                            imagedestroy($image); // Free memory
+                        } else {
+                            // If already PNG, just copy the file
+                            copy($tempImagePath, $pngImagePath);
+                        }
+
+                        // Get the custom coordinates for this image
+                        $x = $coordinates[$index]['x'];
+                        $y = $coordinates[$index]['y'];
+
+                        // Rotate the first 4 images and names
+                        if ($index < 4) {
+                            $pdf->Rotate(180, $x + 10, $y + 10); // Rotate by 45 degrees around the center of the image
+                        }
+
+                        // Add the image to the PDF
+                        $pdf->Image($pngImagePath, $x, $y, 20, 20); // Add the image (x, y, width, height)
+
+                        // Add the profile name above the image
+                        $pdf->SetFont('Arial', '', 6);
+                        // Always place the name above the image
+                        $nameY = $y - 10; // Fixed offset to place the name above the image
+                        if ($nameY < 0) {
+                            $nameY = 1; // Ensure the name stays within the page bounds
+                        }
+                        $pdf->SetXY($x, $nameY);
+                        $pdf->Cell(20, 10, $profileName, 0, 0, 'C');
+
+                        // Reset rotation after adding the image and name
+                        if ($index < 4) {
+                            $pdf->Rotate(0); // Reset rotation
+                         }
+
+
+                        // Clean up the temporary files
+                        unlink($tempImagePath);
+                        unlink($pngImagePath);
+                    } catch (\Exception $e) {
+                        Log::error('Error processing Instagram link: ' . $link . ' - ' . $e->getMessage());
+                    }
                 }
-
-                // Save the logo with the correct extension
-                $logoPath = sys_get_temp_dir() . '/logo' . $extension;
-                file_put_contents($logoPath, $logoContent);
-
-                // Add the logo to the PDF
-                $pdf->Image($logoPath, 119, 162, 8, 8); // Adjust position (x, y) and size (width, height)
-
-                // Clean up the temporary file
-                unlink($logoPath);
-
-                // Add the profile name
-                $pdf->SetFont('Arial', '', 5); // Use Arial with a larger font size
-                $pdf->SetXY(116.6, 155.5); // Adjust position (x, y)
-                $profileName = iconv('UTF-8', 'ISO-8859-1//TRANSLIT', $profileName); // Convert the profile name to ISO-8859-1 encoding
-                $pdf->Write(10, $profileName); // Write the profile name
             }
         }
 
