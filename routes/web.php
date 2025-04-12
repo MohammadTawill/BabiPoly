@@ -18,6 +18,17 @@ use App\Http\Controllers\PdfController;
 //     return view('welcome');
 // });
 
+// Route for the form page
+Route::get('/', function () {
+    return view('instagram_form');
+});
+
+
 Route::match(['get', 'post'], '/generate-pdf', [PdfController::class, 'generatePDF']);
+
+// Fallback route to redirect to the root
+Route::fallback(function () {
+    return redirect('/');
+});
 
 
