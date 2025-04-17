@@ -1,13 +1,67 @@
 <?php
+
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
 use Symfony\Component\DomCrawler\Crawler;
 use setasign\Fpdi\Fpdi;
+use Intervention\Image\Facades\Image;
 
 class PdfController extends Controller
 {
+    /**
+     * Fetch Instagram bio using GPT-4 API.
+     */
+    private function fetchInstagramBioFromGPT($username, $profileImageUrl)
+    {
+        // OpenAI API Key
+        $apiKey = env('OPEN_AI_TOKEN');
+    
+        // Messages for GPT-4
+        $messages = [
+            [
+                'role' => 'system',
+                'content' => 'You are a helpful assistant that generates short and engaging descriptions for Instagram accounts.',
+            ],
+            [
+                'role' => 'user',
+                'content' => "Write a short and engaging description about the Instagram account with the username '$username'. "
+                    . "The profile picture URL is: $profileImageUrl. "
+                    . "Generate a friendly and creative description.",
+            ],
+        ];
+    
+        // Make a request to OpenAI API
+        $response = Http::withHeaders([
+            'Authorization' => "Bearer $apiKey",
+            'Content-Type' => 'application/json',
+        ])->post('https://api.openai.com/v1/chat/completions', [
+            'model' => 'gpt-4', // Use GPT-4 model
+            'messages' => $messages,
+            'max_tokens' => 100, // Adjust token limit as needed
+            'temperature' => 0.7, // Adjust creativity level
+        ]);
+    
+        // Check for errors
+        if ($response->failed()) {
+            throw new \Exception('Failed to fetch data from OpenAI: ' . $response->body());
+        }
+    
+        // Get the generated text
+        $bio = trim($response->json('choices.0.message.content'));
+    
+        // Remove unwanted text (e.g., emojis, special characters)
+        $bio = preg_replace('/[^\w\s.,!?\'"-]/u', '', $bio); // Removes emojis and special characters
+    
+        // Trim again to clean up any extra spaces
+        return trim($bio);
+    }
+
+    /**
+     * Generate a PDF with Instagram profile details.
+     */
     public function generatePdf(Request $request)
     {
         // Redirect to the form page if the request method is GET
@@ -49,7 +103,7 @@ class PdfController extends Controller
             $logoContent = file_get_contents($profileImage);
 
             // Path to the local PDF template
-            $pdfTemplatePath = public_path('files/Babipoly x Byblos Hotel.pdf');
+            $pdfTemplatePath = public_path('files/Babipoly.pdf');
 
             if (!file_exists($pdfTemplatePath)) {
                 return redirect('/')->with('error', 'PDF template not found');
@@ -91,41 +145,61 @@ class PdfController extends Controller
 
                     // Add the logo to the PDF
                     if ($pageNo === 1) {
-                         // Add two profile images on page 1
-                         $pdf->Image($logoPath, 200, 50, 100, 100); //(x, y, width, height)
+                        $pdf->Image($logoPath, 210, 50, 80, 80); //(x, y, width, height)
                     } elseif ($pageNo === 3) {
-                        // Add two profile images on page 3
-                        $pdf->Image($logoPath, 40, 25, 70, 70); //(x, y, width, height)
+                        $pdf->Image($logoPath, 40, 23, 70, 70); //(x, y, width, height)
                     } elseif ($pageNo === 4) {
-                        // Add two profile images on page 4
-                        $pdf->Image($logoPath, 119, 162, 8, 8); // First image (x, y, width, height)
-                        $pdf->Image($logoPath, 217, 114, 35, 32); // Second image (x, y, width, height)
+                        $pdf->Image($logoPath, 119.4, 162, 7, 7); // First image
+                        $pdf->Image($logoPath, 193, 87, 28, 28); // Second image
+
+                        // Add the profileName to page 4 (first position)
+                        $pdf->SetFont('Arial', 'B', 4); // Use bold Arial font with size 12
+                        $pdf->SetXY(117, 155.5); // Adjust position (x, y) for the first text
+                        $pdf->Cell(0, 10, $profileName); // Add the profileName
+
+                        // Add the profileName to page 4 (second position)
+                        $pdf->SetFont('Arial', 'B', 12); // Use bold Arial font with size 12
+                        $pdf->SetXY(192, 78); // Adjust position (x, y) for the second text
+                        $pdf->Cell(0, 10, $profileName); // Add the profileName again                     
                     } elseif ($pageNo === 5) {
-                        // Add three profile images on page 5
-                        $pdf->Image($logoPath, 238, 28, 20, 20); // First image
-                        $pdf->Image($logoPath, 200, 126, 13, 13); // Second image
-                        $pdf->Image($logoPath, 280, 126, 13, 13); // Third image
+                        $pdf->Image($logoPath, 238, 25, 22, 22); // First image
+                        $pdf->Image($logoPath, 200, 128, 13, 13); // Second image
+                        $pdf->Image($logoPath, 280, 128, 13, 13); // Third image
                     } else {
-                        // Add one profile image on page 8
-                        $pdf->Image($logoPath, 175, 80, 25, 25); // Adjust position (x, y) and size (width, height)
+                        $pdf->Image($logoPath, 175, 81, 25, 25); // Adjust position (x, y) and size (width, height)
                     }
 
                     // Clean up the temporary file
                     unlink($logoPath);
                 }
 
-                // Add the profile name only to the fourth page
-                if ($pageNo === 4) {
-                    $pdf->SetFont('Arial', '', 4); // Use Arial with a larger font size
-                    $pdf->SetXY(117.3, 155.5); // Adjust position (x, y)
-                    $profileName = iconv('UTF-8', 'ISO-8859-1//TRANSLIT', $profileName); // Convert the profile name to ISO-8859-1 encoding
-                    $pdf->Write(10, $profileName); // Write the profile name
-
-                    // Add the profile name to the second image
-                    $pdf->SetFont('Arial', '', 15); // Use Arial with a larger font size
-                    $pdf->SetXY(216, 105.5); // Adjust position (x, y)
-                    $profileName = iconv('UTF-8', 'ISO-8859-1//TRANSLIT', $profileName); // Convert the profile name to ISO-8859-1 encoding
-                    $pdf->Write(10, $profileName); // Write the profile name
+                // Add the profile name and bio to the fifth page
+                if ($pageNo === 5) {
+                    // Fetch three different texts from GPT-4
+                    $bio1 = $this->fetchInstagramBioFromGPT($profileName, $profileImage);
+                    $bio2 = $this->fetchInstagramBioFromGPT($profileName, $profileImage); // Second text
+                    $bio3 = $this->fetchInstagramBioFromGPT($profileName, $profileImage); // Third text
+                
+                    // Set font and position for the first text
+                    $pdf->SetFont('Arial', '', 12); // Use Arial with a smaller font size
+                    $pdf->SetXY(173, 50); // Adjust position (x, y) for the first text
+                    $textWidth = 150; // Width for the text box
+                    $lineHeight = 9; // Line height for the text
+                    $pdf->MultiCell($textWidth, $lineHeight, $bio1); // Add the first text
+                
+                    // Set position for the second text
+                    $pdf->SetFont('Arial', '', 7); // Use Arial with a smaller font size
+                    $pdf->SetXY(173, 143); // Adjust position (x, y) for the second text
+                    $textWidth = 70; // Width for the text box
+                    $lineHeight = 3; // Line height for the text
+                    $pdf->MultiCell($textWidth, $lineHeight, $bio2); // Add the second text
+                
+                    // Set position for the third text
+                    $pdf->SetFont('Arial', '', 8); // Use Arial with a smaller font size
+                    $pdf->SetXY(253.5, 143); // Adjust position (x, y) for the third text
+                    $textWidth = 70; // Width for the text box
+                    $lineHeight = 3; // Line height for the text
+                    $pdf->MultiCell($textWidth, $lineHeight, $bio3); // Add the third text
                 }
             }
 
