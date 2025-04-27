@@ -14,7 +14,7 @@ class PdfController extends Controller
     /**
      * Fetch Instagram bio using GPT-4 API.
      */
-    private function fetchInstagramBioFromGPT($username, $profileImageUrl)
+    private function fetchInstagramBioFromGPT($username, $profileImageUrl, $wordLimit = 40)
     {
         // OpenAI API Key
         $apiKey = env('OPEN_AI_TOKEN');
@@ -29,7 +29,7 @@ class PdfController extends Controller
                 'role' => 'user',
                 'content' => "Write a short and engaging description about the Instagram account with the username '$username'. "
                     . "The profile picture URL is: $profileImageUrl. "
-                    . "Generate a friendly and creative description.",
+                    . ($wordLimit ? "Limit the description to a maximum of $wordLimit words." : "Generate a friendly and creative description."),
             ],
         ];
     
